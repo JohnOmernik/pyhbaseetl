@@ -24,10 +24,12 @@ envvars['loop_timeout'] = ["5.0", False, 'flt']
 
 # MapR DB Conf
 envvars['table_base'] = ['', True, 'str']
-envvars['uniq_env'] = ['HOSTNAME', False, 'str']
-envvars['row_key_field'] = ['', True, 'str']
+envvars['row_key_fields'] = ['', True, 'str']
+envvars['row_key_delim'] = ['_', False, 'str']
 envvars['family_mapping'] = ['', True, 'str']
-
+envvars['create_table'] = [0, False, 'int']
+envvars['bulk_enabled'] = [0, False, 'int']
+envvars['print_drill_view'] = [0, False, 'int']
 # Loop Caching
 envvars['rowmax'] = [50, False, 'int'] # Setting rowmax to 1 will disable batching of data and send each record as it comes in. 
 envvars['timemax'] = [60, False, 'int'] # If ROWMAX=1 this doesn't matter
@@ -39,16 +41,12 @@ envvars['remove_fields'] = ['', False, 'str'] # Comma Sep list of fields to try 
 
 # Debug
 envvars['debug'] = [0, False, 'int']
-
 loadedenv = {}
-
 
 def main():
 
     global loadedenv
     loadedenv = loadenv(envvars)
-    loadedenv['tmp_part'] = loadedenv['table_base'] + "/" + loadedenv['tmp_part_dir']
-    loadedenv['uniq_val'] = os.environ[loadedenv['uniq_env']]
     if loadedenv['debug'] == 1:
         print json.dumps(loadedenv, sort_keys=True, indent=4, separators=(',', ': '))
 
@@ -62,6 +60,49 @@ def main():
     if loadedenv['debug'] >= 1:
         print mybs
 
+
+    table_schema = {}
+    cf_schema = {}
+    cf_lookup = {}
+    for x in loadedenv['family_mapping'].split(";"):
+        o = x.split(":")
+        table_schema[o[0]] = o[1].split(",")
+        cf_schema[o[0]] = {}
+    for x in table_schema.iterkeys():
+        for c in table_schema[x]:
+            cf_lookup[c] = x
+    myview = drill_view(table_schema)
+    if loadedenv['debug'] >= 1 or loadedenv['print_drill_view'] == 1: 
+        print "Drill Shell View:"
+        print myview
+    if loadedenv['print_drill_view'] == 1:
+        sys.exit(0)
+
+
+    if loadedenv['debug'] >= 1:
+        print "Schema provided:"
+        print table_schema
+        print ""
+        print "cf_lookip:"
+        print cf_lookup
+
+
+    connection = Connection()
+    try:
+        table = connection.table(loadedenv['table_base'])
+    except:
+        if loadedenv['create_table'] != 1:
+            print "Table not found and create table not set to 1 - Cannot proceed"
+            sys.exit(1)
+        else:
+            print "Table not found: Creating"
+            connection.create_table(loadedenv['table_base'], cf_schema)
+            try:
+                table = connection.table(loadedenv['table_base'])
+            except:
+                print "Couldn't find table, tried to create, still can't find, exiting"
+                sys.exit(1)
+    
     # Create Consumer group to listen on the topic specified
     c = Consumer({'bootstrap.servers': mybs, 'group.id': loadedenv['group_id'], 'default.topic.config': {'auto.offset.reset': loadedenv['offset_reset']}})
     c.subscribe([loadedenv['topic']])
@@ -91,7 +132,7 @@ def main():
             # This is a message let's add it to our queue
             try:
                 # This may not be the best way to approach this.
-                val = message.value().decode('ascii', errors='replace')
+                val = message.value().decode('ascii', errors='ignore')
             except:
                 print message.value()
                 val = ""
@@ -104,19 +145,23 @@ def main():
                     dataar.append(json.loads(val))
                 except:
                     failedjson = 1
-                    if loadedenv['remove_field_on_fail'] == 1:
+                    if loadedenv['remove_fields_on_fail'] == 1:
                         print "JSON Error likely due to binary in request - per config remove_field_on_fail - we are removing the the following fields and trying again"
                         while failedjson == 1:
                             for f in loadedenv['remove_fields'].split(","):
                                 try:
-                                    print "Trying to remove: %s" + f
+                                    print "Trying to remove: %s" % f
                                     dataar.append(json.loads(re.sub(b'"' + f + '":".+?","', b'"' + f + '":"","', message.value()).decode("ascii", errors='ignore')))
                                     failedjson = 0
                                     break
                                 except:
                                     print "Still could not force into json even after dropping %s" % f
+                                    if loadedenv['debug'] == 1:
+                                        print message.value().decode("ascii", errors='ignore')
+                            if failedjson == 1:
+                                failedjson = 2
 
-                    if loadedenv['debug'] >= 1 and failedjson == 1:
+                    if loadedenv['debug'] >= 1 and failedjson >= 1:
                         print ("JSON Error - Debug - Attempting to print")
                         print("Raw form kafka:")
                         try:
@@ -137,20 +182,90 @@ def main():
 
             # If our row count is over the max, our size is over the max, or time delta is over the max, write the group to the parquet.
         if (rowcnt >= loadedenv['rowmax'] or timedelta >= loadedenv['timemax'] or sizecnt >= loadedenv['sizemax']) and len(dataar) > 0:
+            if loadedenv['bulk_enabled'] == 1:
 
+                batch = table.batch()
 
-            if loadedenv['debug'] >= 1:
-                print "Write Dataframe to %s at %s records - Size: %s - Seconds since last write: %s" % (curfile, rowcnt, sizecnt, timedelta)
+                for r in dataar:
+                    batch.put(db_rowkey(r), db_row(r, cf_lookup))
+#                    print "batch.put(%s, %s)" % (db_rowkey(r), db_row(r, cf_lookup))
+                errors = batch.send()
 
+                if errors == 0:
+                    if loadedenv['debug'] >= 1:
+                        print "Write Dataframe to %s at %s records - Size: %s - Seconds since last write: %s - NO ERRORS" % (loadedenv['table_base'], rowcnt, sizecnt, timedelta)
+                else:
+                    print "Multiple errors on write - Errors: %s" % errors
+                    sys.exit(1)
+            else:
+                bcnt = 0
+                for r in dataar:
+                    bcnt += 1
+                    try:
+                        table.put(db_rowkey(r), db_row(r, cf_lookup))
+                    except:
+                        print "Failed on record with key: %s" % db_rowkey(r)
+                        print db_row(r, cf_lookup)
+                        sys.exit(1)
+                if loadedenv['debug'] >= 1:
+                    print "Pushed: %s rows" % rowcnt
 
-
-            parqar = []
+            dataar = []
             rowcnt = 0
             sizecnt = 0
             lastwrite = curtime
 
 
     c.close()
+def drill_view(tbl):
+    tbl_name = loadedenv['table_base']
+
+    out = "CREATE OR REPLACE VIEW MYVIEW_OF_DATA as \n"
+    out = out + "select \n"
+    for cf in tbl.iterkeys():
+        for c in tbl[cf]:
+            out = out + "CONVERT_FROM(t.`%s`.`%s`, 'UTF8') as `%s`, \n" % (cf, c, c)
+
+    out = out[:-3] + "\n"
+    out = out + "FROM `%s` t\n" % tbl_name
+    return out
+
+
+def db_rowkey(jrow):
+    out = ""
+    for x in loadedenv['row_key_fields'].split(","):
+        v = ''
+        if jrow[x] == None:
+            v = ''
+        else:
+            try:
+                v = str(jrow[x])
+            except:
+                print jrow
+                sys.exit(1)
+
+        if out == "":
+            out = v
+        else:
+            out = out + loadedenv['row_key_delim'] + v
+    return out
+
+def db_row(jrow, cfl):
+    out ={}
+    for r in jrow:
+        v = ''
+        if jrow[r] == None:
+            v = ''
+        else:
+            try:
+                v = str(jrow[r])
+            except:
+                print "Field: %s" % r
+                print jrow[r].decode('ascii', errors='ignore')
+                print jrow
+        out[cfl[r] + ":" + r] = v
+    return out
+
 
 def loadenv(evars):
     print("Loading Environment Variables")

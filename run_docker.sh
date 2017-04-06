@@ -1,9 +1,8 @@
 #!/bin/bash
 
-IMG="pyhbaseetl"
+IMG="dockerregv2-shared.marathon.slave.mesos:5005/pyhbaseetl:1.0.0"
 
 BIN="-v=`pwd`/bin:/app/bin:rw"
-DATA="-v=/your/path/to/data:/app/data:rw"
 MAPR="-v=/opt/mapr:/opt/mapr:ro"
 
 CMD="/bin/bash"
