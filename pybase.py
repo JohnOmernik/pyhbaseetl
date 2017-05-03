@@ -53,7 +53,7 @@ def main():
     # Get the Boostrap brokers if it doesn't exist
     if loadedenv['bootstrap_brokers'] == "":
         if loadedenv['zookeepers'] == "":
-            print"Must specify either Bootstrap servers via BOOTSTRAP_BROKERS or Zookeepers via ZOOKEEPERS"
+            print "Must specify either Bootstrap servers via BOOTSTRAP_BROKERS or Zookeepers via ZOOKEEPERS"
             sys.exit(1)
 
         mybs = boostrap_from_zk(loadedenv['zookeepers'], loadedenv['kafka_id'])
@@ -146,38 +146,38 @@ def main():
                 except:
                     failedjson = 1
                     if loadedenv['remove_fields_on_fail'] == 1:
-                        print("JSON Error likely due to binary in request - per config remove_field_on_fail - we are removing the the following fields and trying again")
+                        print "JSON Error likely due to binary in request - per config remove_field_on_fail - we are removing the the following fields and trying again"
                         while failedjson == 1:
                             repval = message.value()
                             for f in loadedenv['remove_fields'].split(","):
-                                print("Trying to remove: %s" % f)
-                                repval = re.sub(b'"' + f.encode() + b'":".+?","', b'"' + f.encode() + b'":"","', repval)
+                                print "Trying to remove: %s" % f
+                                repval = re.sub('"' + f + '":".+?","', '"' + f + '":"","', repval)
                                 try:
                                     dataar.append(json.loads(repval.decode("ascii", errors='ignore')))
                                     failedjson = 0
                                     break
                                 except:
-                                    print("Still could not force into json even after dropping %s" % f)
+                                    print "Still could not force into json even after dropping %s" % f
                             if failedjson == 1:
                                 if loadedenv['debug'] == 1:
-                                     print(repval.decode("ascii", errors='ignore'))
+                                     print repval.decode("ascii", errors='ignore')
                                 failedjson = 2
 
                     if loadedenv['debug'] >= 1 and failedjson >= 1:
-                        print ("JSON Error - Debug - Attempting to print")
-                        print("Raw form kafka:")
+                        print  "JSON Error - Debug - Attempting to print"
+                        print "Raw form kafka:"
                         try:
-                            print(message.value())
+                            print message.value()
                         except:
-                            print("Raw message failed to print")
-                        print("Ascii Decoded (Sent to json.dumps):")
+                            print "Raw message failed to print"
+                        print "Ascii Decoded (Sent to json.dumps):"
                         try:
-                            print(val)
+                            print val
                         except:
-                            print("Ascii dump message failed to print")
+                            print"Ascii dump message failed to print"
 
         elif message.error().code() != KafkaError._PARTITION_EOF:
-            print("MyError: " + message.error())
+            print "MyError: " + message.error()
             running = False
             break
 
