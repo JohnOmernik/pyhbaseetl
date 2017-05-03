@@ -241,7 +241,7 @@ def db_rowkey(jrow):
         v = ''
         # When we don't have a lot of variance in our key generation, we can add a RANDOMROWKEYVAL to the row key
         if x == "RANDOMROWKEYVAL":
-            v = random.randint(1,100000000)
+            v = str(random.randint(1,100000000))
         else:
             if jrow[x] == None:
                 v = ''
