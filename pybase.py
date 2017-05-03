@@ -146,19 +146,21 @@ def main():
                 except:
                     failedjson = 1
                     if loadedenv['remove_fields_on_fail'] == 1:
-                        print "JSON Error likely due to binary in request - per config remove_field_on_fail - we are removing the the following fields and trying again"
+                        print("JSON Error likely due to binary in request - per config remove_field_on_fail - we are removing the the following fields and trying again")
                         while failedjson == 1:
+                            repval = message.value()
                             for f in loadedenv['remove_fields'].split(","):
+                                print("Trying to remove: %s" % f)
+                                repval = re.sub(b'"' + f.encode() + b'":".+?","', b'"' + f.encode() + b'":"","', repval)
                                 try:
-                                    print "Trying to remove: %s" % f
-                                    dataar.append(json.loads(re.sub(b'"' + f + '":".+?","', b'"' + f + '":"","', message.value()).decode("ascii", errors='ignore')))
+                                    dataar.append(json.loads(repval.decode("ascii", errors='ignore')))
                                     failedjson = 0
                                     break
                                 except:
-                                    print "Still could not force into json even after dropping %s" % f
-                                    if loadedenv['debug'] == 1:
-                                        print message.value().decode("ascii", errors='ignore')
+                                    print("Still could not force into json even after dropping %s" % f)
                             if failedjson == 1:
+                                if loadedenv['debug'] == 1:
+                                     print(repval.decode("ascii", errors='ignore'))
                                 failedjson = 2
 
                     if loadedenv['debug'] >= 1 and failedjson >= 1:
