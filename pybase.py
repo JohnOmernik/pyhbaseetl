@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from confluent_kafka import Consumer, KafkaError
+import random
 import json
 import re
 from pychbase import Connection, Table, Batch
@@ -224,6 +225,7 @@ def drill_view(tbl):
 
     out = "CREATE OR REPLACE VIEW MYVIEW_OF_DATA as \n"
     out = out + "select \n"
+    out = out + "CONVERT_FROM(`row_key`, 'UTF8') AS `tbl_row_key`,\n"
     for cf in tbl.iterkeys():
         for c in tbl[cf]:
             out = out + "CONVERT_FROM(t.`%s`.`%s`, 'UTF8') as `%s`, \n" % (cf, c, c)
@@ -237,14 +239,18 @@ def db_rowkey(jrow):
     out = ""
     for x in loadedenv['row_key_fields'].split(","):
         v = ''
-        if jrow[x] == None:
-            v = ''
+        # When we don't have a lot of variance in our key generation, we can add a RANDOMROWKEYVAL to the row key
+        if x == "RANDOMROWKEYVAL":
+            v = random.randint(1,100000000)
         else:
-            try:
-                v = str(jrow[x])
-            except:
-                print jrow
-                sys.exit(1)
+            if jrow[x] == None:
+                v = ''
+            else:
+                try:
+                    v = str(jrow[x])
+                except:
+                    print jrow
+                    sys.exit(1)
 
         if out == "":
             out = v
