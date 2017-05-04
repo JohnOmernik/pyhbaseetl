@@ -51,13 +51,13 @@ def main():
     if loadedenv['debug'] == 1:
         print json.dumps(loadedenv, sort_keys=True, indent=4, separators=(',', ': '))
 
-    # Get the Boostrap brokers if it doesn't exist
+    # Get the Bootstrap brokers if it doesn't exist
     if loadedenv['bootstrap_brokers'] == "":
         if loadedenv['zookeepers'] == "":
             print "Must specify either Bootstrap servers via BOOTSTRAP_BROKERS or Zookeepers via ZOOKEEPERS"
             sys.exit(1)
 
-        mybs = boostrap_from_zk(loadedenv['zookeepers'], loadedenv['kafka_id'])
+        mybs = bootstrap_from_zk(loadedenv['zookeepers'], loadedenv['kafka_id'])
     if loadedenv['debug'] >= 1:
         print mybs
 
@@ -301,7 +301,7 @@ def loadenv(evars):
 
 
 # Get our bootstrap string from zookeepers if provided
-def boostrap_from_zk(ZKs, kafka_id):
+def bootstrap_from_zk(ZKs, kafka_id):
     from kazoo.client import KazooClient
     zk = KazooClient(hosts=ZKs,read_only=True)
     zk.start()
