@@ -54,10 +54,13 @@ def main():
     # Get the Bootstrap brokers if it doesn't exist
     if loadedenv['bootstrap_brokers'] == "":
         if loadedenv['zookeepers'] == "":
-            print "Must specify either Bootstrap servers via BOOTSTRAP_BROKERS or Zookeepers via ZOOKEEPERS"
+            print("Must specify either Bootstrap servers via BOOTSTRAP_BROKERS or Zookeepers via ZOOKEEPERS")
             sys.exit(1)
-
         mybs = bootstrap_from_zk(loadedenv['zookeepers'], loadedenv['kafka_id'])
+    else:
+        if loadedenv['bootstrap_brokers'] == 'mapr':
+            mybs = ''
+
     if loadedenv['debug'] >= 1:
         print mybs
 
@@ -106,7 +109,7 @@ def main():
     
     # Create Consumer group to listen on the topic specified
     c = Consumer({'bootstrap.servers': mybs, 'group.id': loadedenv['group_id'], 'default.topic.config': {'auto.offset.reset': loadedenv['offset_reset']}})
-    c.subscribe([loadedenv['topic']])
+    c.subscribe([loadedenv['topic']], on_assign=print_assignment)
 
     # Initialize counters
     rowcnt = 0
@@ -298,6 +301,10 @@ def loadenv(evars):
 
 
     return lenv
+
+def print_assignment(consumer, partitions):
+        if loadedenv['debug'] >= 1:
+            print('Assignment of group to partitions %s' % partitions)
 
 
 # Get our bootstrap string from zookeepers if provided
